@@ -11,5 +11,7 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
   ],
-
+  server: {
+    port: 5173,        // Use the port you want
+  }
 })
