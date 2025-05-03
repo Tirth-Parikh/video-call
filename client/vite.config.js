@@ -12,6 +12,7 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    host: '8888',  // Allow external access
     port: 5173,        // Use the port you want
   }
 })
