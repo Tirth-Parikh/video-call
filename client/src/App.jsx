@@ -2,6 +2,7 @@ import React from 'react';
 import { Route, BrowserRouter as Router, Routes, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
+import Login from './pages/Login';
 import Room from "./pages/Room";
 
 // Create a functional component to check the current path
@@ -19,6 +20,9 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/room/:roomCode" element={<Room />} />
+        <Route path="login" element={<Login />} />
+
+        
       </Routes>
     </>
   );
