@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://video-call-1-9t8u.onrender.com/sitemap.xml
+Sitemap: https://quickvideoconf.onrender.com/sitemap.xml
