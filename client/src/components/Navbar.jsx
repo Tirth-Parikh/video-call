@@ -9,7 +9,7 @@ const date = moment().format('ddd,MMMDD');     // e.g., Sat,Apr26
     <div className="text-gray p-4 flex justify-between">
     <div>
 
-      <Link to="/" >
+      <Link to="/" className='text-[19px]'>
         QuickVideoConf
       </Link>
     </div>

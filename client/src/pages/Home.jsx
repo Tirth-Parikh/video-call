@@ -100,7 +100,7 @@ export default function Home() {
       </div>
       
     </div>
-    <section className="max-w-3xl mx-auto px-4 ">
+    <section className="max-w-3xl mx-auto px-4 pt-0 pb-3.5">
       <h2 className="text-2xl sm:text-3xl font-bold mb-6 text-center">FAQs</h2>
       <div className="space-y-4">
         {faqs.map((faq, index) => (
