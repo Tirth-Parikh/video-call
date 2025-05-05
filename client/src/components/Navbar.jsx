@@ -10,7 +10,7 @@ const date = moment().format('ddd,MMMDD');     // e.g., Sat,Apr26
     <div>
 
       <Link to="/" >
-        Meetify
+        QuickVideoConf
       </Link>
     </div>
     <div className='flex space-x-2 items-center text-gray-700 text-[19px]'>
