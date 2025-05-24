@@ -1,8 +1,6 @@
 import React, { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
-// Import icons from a library like react-icons or use SVG directly
-// For this example, I'll create simple icon components
 const MicIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -155,9 +153,11 @@ const MoreVerticalIcon = () => (
 
 export default function Room() {
   const localVideo = useRef(null)
+  const localCameraVideo = useRef(null) // Separate ref for camera when screen sharing
   const navigate = useNavigate()
 
   const [localStream, setLocalStream] = useState(null)
+  const [cameraStream, setCameraStream] = useState(null) // Separate camera stream
   const [remoteUsers, setRemoteUsers] = useState([])
   const [isMicOn, setIsMicOn] = useState(true)
   const [isCamOn, setIsCamOn] = useState(true)
@@ -166,21 +166,16 @@ export default function Room() {
   const [showDropdownId, setShowDropdownId] = useState(null)
   const [showTooltip, setShowTooltip] = useState(null)
 
-  const isAdmin = true // Toggle this based on user role
-
-  // Create refs for remote users outside the useEffect
+  const isAdmin = true
   const remoteUserRefs = useRef([])
 
+ 
   useEffect(() => {
-    startLocalMedia()
-
-    // Simulate remote users
+    startLocalMedia();
     const fakeUsers = Array.from({ length: 4 }).map((_, i) => {
-      // Create refs if they don't exist
       if (!remoteUserRefs.current[i]) {
-        remoteUserRefs.current[i] = React.createRef()
+        remoteUserRefs.current[i] = React.createRef();
       }
-
       return {
         id: i,
         name: `Guest ${i + 1}`,
@@ -188,133 +183,159 @@ export default function Room() {
         isCamOn: true,
         isMicOn: true,
         stream: null,
-      }
-    })
-    setRemoteUsers(fakeUsers)
+      };
+    });
+    setRemoteUsers(fakeUsers);
 
-    return () => stopAllTracks(localStream)
-  }, [])
+    return () => {
+      stopAllTracks(localStream);
+      stopAllTracks(cameraStream);
+    };
+  }, []);
 
-  const startLocalMedia = async () => {
+ const startLocalMedia = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      setLocalStream(stream)
-      if (localVideo.current) {
-        localVideo.current.srcObject = stream
-      }
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setLocalStream(stream);
+      setCameraStream(stream.clone());
+      if (localVideo.current) localVideo.current.srcObject = stream;
     } catch (err) {
-      console.error("Failed to access local media:", err)
+      console.error("Failed to access local media:", err);
     }
-  }
+  };
 
-  const stopAllTracks = (stream) => {
-    stream?.getTracks().forEach((track) => track.stop())
-  }
+const stopAllTracks = (stream) => {
+  stream?.getTracks().forEach((track) => track.stop());
+};
+
 
   const toggleMic = async () => {
-    if (!localStream) return
+    if (!localStream) return;
+    const newMicState = !isMicOn;
+    [localStream, cameraStream].forEach((stream) => {
+      stream?.getAudioTracks().forEach((track) => (track.enabled = newMicState));
+    });
+    setIsMicOn(newMicState);
+  };
 
-    if (isMicOn) {
-      localStream.getAudioTracks().forEach((track) => track.stop())
-      setIsMicOn(false)
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const newTrack = stream.getAudioTracks()[0]
-        const videoTracks = localStream.getVideoTracks()
-        const newStream = new MediaStream([...videoTracks, newTrack])
-        setLocalStream(newStream)
-        if (localVideo.current) {
-          localVideo.current.srcObject = newStream
-        }
-        setIsMicOn(true)
-      } catch (err) {
-        console.error("Failed to toggle microphone:", err)
-      }
-    }
-  }
 
-  const toggleCam = async () => {
-    if (!localStream) return
-
+const toggleCam = async () => {
+  try {
     if (isCamOn) {
-      localStream.getVideoTracks().forEach((track) => track.stop())
-      if (localVideo.current) {
-        localVideo.current.srcObject = null
+      // Stop camera stream tracks to release webcam (light turns off)
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
       }
-      setIsCamOn(false)
+
+      // Clean up DOM elements
+      if (!isScreenSharing && localVideo.current) {
+        localVideo.current.srcObject = null;
+      }
+
+      if (localCameraVideo.current) {
+        localCameraVideo.current.srcObject = null;
+      }
+
+      setCameraStream(null);
+      setIsCamOn(false);
     } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-        const newTrack = stream.getVideoTracks()[0]
-        const audioTracks = localStream.getAudioTracks()
-        const newStream = new MediaStream([...audioTracks, newTrack])
-        setLocalStream(newStream)
-        if (localVideo.current) {
-          localVideo.current.srcObject = newStream
+      // Get a new video stream to restart the camera
+      const newStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+      // Respect current mic state
+      newStream.getAudioTracks().forEach(track => {
+        track.enabled = isMicOn;
+      });
+
+      setCameraStream(newStream);
+      setIsCamOn(true);
+
+      // Delay to ensure ref is ready before assigning
+      setTimeout(() => {
+        if (isScreenSharing && localCameraVideo.current) {
+          localCameraVideo.current.srcObject = newStream;
+        } else if (localVideo.current) {
+          localVideo.current.srcObject = newStream;
+          setLocalStream(newStream); // update localStream to allow toggling mic
         }
-        setIsCamOn(true)
-      } catch (err) {
-        console.error("Failed to toggle camera:", err)
-      }
+      }, 100);
     }
+  } catch (error) {
+    console.error("Error toggling camera:", error);
   }
+};
+
 
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
-      // Stop screen sharing and revert to camera
-      await toggleCam()
-      setIsScreenSharing(false)
-      return
-    }
-
-    try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-      })
-
-      stopAllTracks(localStream)
-      setLocalStream(screenStream)
-      if (localVideo.current) {
-        localVideo.current.srcObject = screenStream
+      stopAllTracks(localStream);
+      if (cameraStream && isCamOn) {
+        setLocalStream(cameraStream);
+        if (localVideo.current) localVideo.current.srcObject = cameraStream;
+      } else {
+        setLocalStream(null);
+        if (localVideo.current) localVideo.current.srcObject = null;
       }
-      setIsScreenSharing(true)
-      setIsCamOn(false)
-    } catch (err) {
-      console.error("Failed to share screen:", err)
+      setIsScreenSharing(false);
+    } else {
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        screenStream.getAudioTracks().forEach((track) => (track.enabled = isMicOn));
+        screenStream.getVideoTracks()[0].addEventListener("ended", () => {
+          setIsScreenSharing(false);
+          if (cameraStream && isCamOn) {
+            setLocalStream(cameraStream);
+            if (localVideo.current) localVideo.current.srcObject = cameraStream;
+          } else {
+            setLocalStream(null);
+            if (localVideo.current) localVideo.current.srcObject = null;
+          }
+        });
+        setLocalStream(screenStream);
+        if (localVideo.current) localVideo.current.srcObject = screenStream;
+        setIsScreenSharing(true);
+      } catch (err) {
+        console.error("Failed to share screen:", err);
+      }
     }
-  }
+  };
 
   const adminToggleRemote = (id, type) => {
     setRemoteUsers((prev) =>
-      prev.map((user) => {
-        if (user.id === id) {
-          return { ...user, [type]: !user[type] }
-        }
-        return user
-      }),
-    )
-  }
-
+      prev.map((user) => (user.id === id ? { ...user, [type]: !user[type] } : user))
+    );
+  };
   const handleDisconnect = () => {
-    stopAllTracks(localStream)
-    navigate("/")
-  }
+    stopAllTracks(localStream);
+    stopAllTracks(cameraStream);
+    navigate("/");
+  };
 
   const toggleDropdown = (id) => {
-    setShowDropdownId(showDropdownId === id ? null : id)
-  }
-
+    setShowDropdownId(showDropdownId === id ? null : id);
+  };
+  
   const toggleMobileParticipants = () => {
-    setIsMobileParticipantsOpen(!isMobileParticipantsOpen)
-  }
+    setIsMobileParticipantsOpen(!isMobileParticipantsOpen);
+  };
 
+  useEffect(() => {
+    if (
+      isScreenSharing &&
+      isCamOn &&
+      cameraStream &&
+      localCameraVideo.current &&
+      !localCameraVideo.current.srcObject
+    ) {
+      localCameraVideo.current.srcObject = cameraStream;
+      localCameraVideo.current.play().catch((e) => console.error("Video play error:", e));
+    }
+  }, [isScreenSharing, isCamOn, cameraStream]);
   return (
     <div className="flex flex-col h-screen bg-zinc-900 text-white overflow-hidden">
-      {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Main video area */}
+        {/* Main video area */}             
+     <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 p-2 md:p-4 overflow-hidden flex flex-col">
           <div className="relative w-full h-full rounded-xl overflow-hidden bg-black shadow-lg flex items-center justify-center">
             {isCamOn || isScreenSharing ? (
@@ -327,14 +348,23 @@ export default function Room() {
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full">
-                <div className="w-24 h-24 mb-4 rounded-full bg-zinc-700 flex items-center justify-center text-3xl">
-                  Y
-                </div>
+                <div className="w-24 h-24 mb-4 rounded-full bg-zinc-700 flex items-center justify-center text-3xl">Y</div>
                 <span className="text-xl">Camera is off</span>
               </div>
             )}
 
-            {/* Local user info */}
+            {isScreenSharing && isCamOn && cameraStream && (
+              <div className="absolute bottom-4 right-4 w-48 h-36 rounded-lg overflow-hidden bg-black border-2 border-white/20">
+                <video
+                  ref={localCameraVideo}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover transform scale-x-[-1]"
+                />
+              </div>
+            )}
+
             <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-lg">
               <div className={`flex items-center gap-1 px-2 py-1 rounded-md ${isMicOn ? "bg-blue-600" : "bg-red-600"}`}>
                 {isMicOn ? <MicIcon /> : <MicOffIcon />}
@@ -349,188 +379,15 @@ export default function Room() {
             </div>
           </div>
         </div>
-
-        {/* Desktop participants sidebar */}
-        <div className="hidden md:flex flex-col w-80 bg-zinc-800 border-l border-zinc-700 overflow-y-auto">
-          <div className="p-4 border-b border-zinc-700 flex items-center justify-between">
-            <h2 className="font-semibold flex items-center">
-              <UsersIcon className="w-4 h-4 mr-2" />
-              Participants ({remoteUsers.length + 1})
-            </h2>
-          </div>
-
-          <div className="p-2 flex flex-col gap-3 overflow-y-auto">
-            {/* Local user in participants list */}
-            <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-700/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-zinc-600 flex items-center justify-center">Y</div>
-                <div>
-                  <p className="font-medium">You</p>
-                  <div className="flex gap-1 mt-1">
-                    <div className={`flex items-center p-1 rounded-md ${isMicOn ? "bg-zinc-700" : "bg-red-600"}`}>
-                      {isMicOn ? <MicIcon className="w-3 h-3" /> : <MicOffIcon className="w-3 h-3" />}
-                    </div>
-                    <div className={`flex items-center p-1 rounded-md ${isCamOn ? "bg-zinc-700" : "bg-red-600"}`}>
-                      {isCamOn ? <CameraIcon className="w-3 h-3" /> : <CameraOffIcon className="w-3 h-3" />}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Remote participants */}
-            {remoteUsers.map((user) => (
-              <div key={user.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-zinc-700/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-zinc-600 flex items-center justify-center">
-                    {user.name.charAt(0)}
-                  </div>
-                  <div>
-                    <p className="font-medium">{user.name}</p>
-                    <div className="flex gap-1 mt-1">
-                      <div
-                        className={`flex items-center p-1 rounded-md ${user.isMicOn ? "bg-zinc-700" : "bg-red-600"}`}
-                      >
-                        {user.isMicOn ? <MicIcon className="w-3 h-3" /> : <MicOffIcon className="w-3 h-3" />}
-                      </div>
-                      <div
-                        className={`flex items-center p-1 rounded-md ${user.isCamOn ? "bg-zinc-700" : "bg-red-600"}`}
-                      >
-                        {user.isCamOn ? <CameraIcon className="w-3 h-3" /> : <CameraOffIcon className="w-3 h-3" />}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {isAdmin && (
-                  <div className="relative">
-                    <button onClick={() => toggleDropdown(user.id)} className="p-2 rounded-full hover:bg-zinc-700">
-                      <MoreVerticalIcon className="h-4 w-4" />
-                    </button>
-                    {showDropdownId === user.id && (
-                      <div className="absolute right-0 mt-1 w-48 bg-zinc-800 rounded-md shadow-lg z-10 border border-zinc-700">
-                        <button
-                          className="w-full text-left px-4 py-2 hover:bg-zinc-700"
-                          onClick={() => {
-                            adminToggleRemote(user.id, "isMicOn")
-                            toggleDropdown(user.id)
-                          }}
-                        >
-                          {user.isMicOn ? "Mute participant" : "Unmute participant"}
-                        </button>
-                        <button
-                          className="w-full text-left px-4 py-2 hover:bg-zinc-700"
-                          onClick={() => {
-                            adminToggleRemote(user.id, "isCamOn")
-                            toggleDropdown(user.id)
-                          }}
-                        >
-                          {user.isCamOn ? "Turn off camera" : "Turn on camera"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
 
-      {/* Mobile participants panel */}
-      {isMobileParticipantsOpen && (
-        <div className="fixed inset-0 bg-black/70 z-50 md:hidden">
-          <div className="bg-zinc-800 max-h-[80vh] w-full absolute bottom-0 rounded-t-xl">
-            <div className="p-4 border-b border-zinc-700 flex justify-between items-center">
-              <h2 className="font-semibold flex items-center">
-                <UsersIcon className="w-4 h-4 mr-2" />
-                Participants ({remoteUsers.length + 1})
-              </h2>
-              <button onClick={toggleMobileParticipants} className="p-2 rounded-full hover:bg-zinc-700">
-                ✕
-              </button>
-            </div>
+        {/* Participants panel */}
+     
+      </div>
 
-            <div className="p-4 flex flex-col gap-3 overflow-y-auto max-h-[60vh]">
-              {/* Local user in participants list */}
-              <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-700/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-zinc-600 flex items-center justify-center">Y</div>
-                  <div>
-                    <p className="font-medium">You</p>
-                    <div className="flex gap-1 mt-1">
-                      <div className={`flex items-center p-1 rounded-md ${isMicOn ? "bg-zinc-700" : "bg-red-600"}`}>
-                        {isMicOn ? <MicIcon className="w-3 h-3" /> : <MicOffIcon className="w-3 h-3" />}
-                      </div>
-                      <div className={`flex items-center p-1 rounded-md ${isCamOn ? "bg-zinc-700" : "bg-red-600"}`}>
-                        {isCamOn ? <CameraIcon className="w-3 h-3" /> : <CameraOffIcon className="w-3 h-3" />}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Remote participants */}
-              {remoteUsers.map((user) => (
-                <div key={user.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-zinc-700/50">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-zinc-600 flex items-center justify-center">
-                      {user.name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="font-medium">{user.name}</p>
-                      <div className="flex gap-1 mt-1">
-                        <div
-                          className={`flex items-center p-1 rounded-md ${user.isMicOn ? "bg-zinc-700" : "bg-red-600"}`}
-                        >
-                          {user.isMicOn ? <MicIcon className="w-3 h-3" /> : <MicOffIcon className="w-3 h-3" />}
-                        </div>
-                        <div
-                          className={`flex items-center p-1 rounded-md ${user.isCamOn ? "bg-zinc-700" : "bg-red-600"}`}
-                        >
-                          {user.isCamOn ? <CameraIcon className="w-3 h-3" /> : <CameraOffIcon className="w-3 h-3" />}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {isAdmin && (
-                    <div className="relative">
-                      <button onClick={() => toggleDropdown(user.id)} className="p-2 rounded-full hover:bg-zinc-700">
-                        <MoreVerticalIcon className="h-4 w-4" />
-                      </button>
-                      {showDropdownId === user.id && (
-                        <div className="absolute right-0 mt-1 w-48 bg-zinc-800 rounded-md shadow-lg z-10 border border-zinc-700">
-                          <button
-                            className="w-full text-left px-4 py-2 hover:bg-zinc-700"
-                            onClick={() => {
-                              adminToggleRemote(user.id, "isMicOn")
-                              toggleDropdown(user.id)
-                            }}
-                          >
-                            {user.isMicOn ? "Mute participant" : "Unmute participant"}
-                          </button>
-                          <button
-                            className="w-full text-left px-4 py-2 hover:bg-zinc-700"
-                            onClick={() => {
-                              adminToggleRemote(user.id, "isCamOn")
-                              toggleDropdown(user.id)
-                            }}
-                          >
-                            {user.isCamOn ? "Turn off camera" : "Turn on camera"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Controls bar */}
+      {/* Mobile participants overlay */}
+    
+      {/* Control buttons */}
       <div className="flex items-center justify-center gap-2 p-4 bg-zinc-800 border-t border-zinc-700">
         <div className="relative">
           <button
@@ -627,3 +484,13 @@ export default function Room() {
     </div>
   )
 }
+
+
+
+
+
+
+
+
+
+
